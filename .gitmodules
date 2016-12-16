@@ -1,0 +1,3 @@
+[submodule "tiva-c"]
+	path = tiva-c
+	url = https://github.com/yuvadm/tiva-c.git
