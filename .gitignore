@@ -1,3 +1,6 @@
+# Firmware build directory
+firmware/gcc
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
