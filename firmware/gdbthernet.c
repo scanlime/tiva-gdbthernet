@@ -53,6 +53,8 @@ int main(void)
                          EMAC_PHY_INT_MDIX_EN |
                          EMAC_PHY_FORCE_10B_T_FULL_DUPLEX);
 
+    MAP_EMACReset(EMAC0_BASE);
+
     MAP_EMACInit(EMAC0_BASE, g_ui32SysClock,
                  EMAC_BCONFIG_MIXED_BURST | EMAC_BCONFIG_PRIORITY_FIXED,
                  8, 8, 0);
@@ -77,7 +79,6 @@ int main(void)
     while (1) {
         g_phyStatus = MAP_EMACPHYRead(EMAC0_BASE, 0, EPHY_BMSR);
         __asm__ volatile ("bkpt");
-        MAP_EMACTxDMAPollDemand(EMAC0_BASE);
     }
 }
 
