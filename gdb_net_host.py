@@ -6,24 +6,19 @@ num_rx = gdb.parse_and_eval('sizeof g_rxBuffer / sizeof g_rxBuffer[0]')
 num_tx = gdb.parse_and_eval('sizeof g_txBuffer / sizeof g_txBuffer[0]')
 next_rx = 0
 next_tx = 0
-saved_mac_addr = None
 
 
 def poll(tap):
     if poll_link():
-        while poll_rx(tap):
-            pass
-        while poll_tx(tap):
-            pass
-
+        while poll_rx(tap): continue
+        while poll_tx(tap): continue
 
 def poll_link():
     status = gdb.parse_and_eval('g_phyStatus')
     if (status & 5) != 5:
-        print 'phy status = %08x, still waiting for full-duplex link...' % status
+        print 'phy status = %08x, takes a few seconds to detect the full-duplex link...' % status
         return False
     return True
-
 
 def rx_poll_demand():
     # Rx Poll Demand (wake up MAC if it's suspended)
@@ -70,7 +65,6 @@ def poll_rx(tap):
 
 def poll_tx(tap):
     global next_tx
-    global saved_mac_addr
 
     if gdb.parse_and_eval('g_txBuffer[%d].desc.ui32CtrlStatus' % next_tx) & (1 << 31):
         print "TX waiting for buffer %d" % (next_tx)
@@ -79,21 +73,13 @@ def poll_tx(tap):
 
     if not select.select([tap.fileno()], [], [], 0)[0]:
         return
-    frame = tap.read(4096)
+    frame = tap.read(tap.mtu)
     print 'TX %r' % binascii.b2a_hex(frame)
 
-    # Lazily set up MAC address here; the hardware insists on replacing it in outgoing frames
-    source_mac = frame[6:12]
-    if saved_mac_addr != source_mac:
-        saved_mac_addr = source_mac
-        print "TX setting MAC address to %r" % binascii.b2a_hex(source_mac)
-        gdb.parse_and_eval('*(volatile uint32_t*) 0x400EC040 = 0x%x' % (ord(source_mac[4]) | (ord(source_mac[5]) << 8)))
-        gdb.parse_and_eval('*(volatile uint32_t*) 0x400EC048 = 0x%x' % (ord(source_mac[0]) | (ord(source_mac[1]) << 8) |
-                                                                       (ord(source_mac[2]) << 16) | (ord(source_mac[3]) << 24)))
     ptr = gdb.parse_and_eval('g_txBuffer[%d].frame' % next_tx)
     gdb.selected_inferior().write_memory(ptr, frame)
-    gdb.parse_and_eval('g_txBuffer[%d].desc.ui32Count = DES1_TX_CTRL_SADDR_INSERT | (%d << DES1_TX_CTRL_BUFF1_SIZE_S)' % (next_tx, len(frame)))
-    gdb.parse_and_eval('g_txBuffer[%d].desc.ui32CtrlStatus = DES0_TX_CTRL_LAST_SEG | DES0_TX_CTRL_FIRST_SEG | DES0_TX_CTRL_CHAINED | DES0_TX_CTRL_IP_ALL_CKHSUMS | DES0_TX_CTRL_OWN' % next_tx)
+    gdb.parse_and_eval('g_txBuffer[%d].desc.ui32Count = %d << DES1_TX_CTRL_BUFF1_SIZE_S' % (next_tx, len(frame)))
+    gdb.parse_and_eval('g_txBuffer[%d].desc.ui32CtrlStatus = DES0_TX_CTRL_LAST_SEG | DES0_TX_CTRL_FIRST_SEG | DES0_TX_CTRL_CHAINED | DES0_TX_CTRL_OWN' % next_tx)
     next_tx = (next_tx + 1) % num_tx
 
     tx_poll_demand()
@@ -114,10 +100,8 @@ def main():
     try:
         gdb.execute('run')
         while True:
-            #transmit("U" * 1536)
-            for i in range(10):
-                poll(tap)
-                gdb.execute('cont')
+            gdb.execute('cont')
+            poll(tap)
     except KeyboardInterrupt:
         gdb.execute('set confirm off')
         gdb.execute('quit')
