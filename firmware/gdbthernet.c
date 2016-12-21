@@ -29,8 +29,8 @@ typedef struct {
 uint32_t g_ui32SysClock;
 uint32_t g_phyStatus;
 
-tDMAFrame g_rxBuffer[6];
-tDMAFrame g_txBuffer[3];
+tDMAFrame g_rxBuffer[8];
+tDMAFrame g_txBuffer[8];
 
 int main(void)
 {
@@ -92,7 +92,7 @@ void init_dma_frames(void)
         g_txBuffer[i].desc.ui32Count = DES1_TX_CTRL_SADDR_INSERT | (sizeof g_txBuffer[0].frame << DES1_TX_CTRL_BUFF1_SIZE_S);
         g_txBuffer[i].desc.pvBuffer1 = g_txBuffer[i].frame;
         g_txBuffer[i].desc.DES3.pLink = &g_txBuffer[(i + 1) % num_tx].desc;
-        g_txBuffer[i].desc.ui32CtrlStatus = 0;
+        g_txBuffer[i].desc.ui32CtrlStatus = DES0_TX_CTRL_LAST_SEG | DES0_TX_CTRL_FIRST_SEG | DES0_TX_CTRL_CHAINED | DES0_TX_CTRL_IP_ALL_CKHSUMS;
     }
 
     for (i = 0; i < num_rx; i++) {
