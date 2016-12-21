@@ -46,8 +46,8 @@ def poll_rx(tap):
     elif status & (1 << 1):
         print "RX CRC error"
     elif (status & (1 << 8)) and (status & (1 << 9)):
-        # Complete frame (first and last parts)
-        length = (status >> 16) & 0x3FFF
+        # Complete frame (first and last parts), strip 4-byte FCS
+        length = ((status >> 16) & 0x3FFF) - 4
         ptr = gdb.parse_and_eval('g_rxBuffer[%d].frame' % next_rx)
         frame = gdb.selected_inferior().read_memory(ptr, length)
         print 'RX %r' % binascii.b2a_hex(frame)
