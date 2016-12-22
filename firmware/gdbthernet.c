@@ -50,7 +50,6 @@ int main(void)
 
     MAP_EMACPHYConfigSet(EMAC0_BASE,  
                          EMAC_PHY_TYPE_INTERNAL |
-                         EMAC_PHY_INT_MDIX_EN |
                          EMAC_PHY_FORCE_10B_T_FULL_DUPLEX);
 
     MAP_EMACReset(EMAC0_BASE);
