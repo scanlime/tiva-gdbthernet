@@ -1,0 +1,11 @@
+service tiva-proxy
+{
+ disable = no
+ type = UNLISTED
+ socket_type = stream
+ protocol = tcp
+ wait = no
+ redirect = 192.168.0.1 80
+ port = 80
+ user = nobody
+}
