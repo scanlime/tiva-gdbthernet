@@ -19,6 +19,7 @@
 #include "driverlib/sysctl.h"
 #include "drivers/pinout.h"
 
+void capture_phy_regs(void);
 void init_dma_frames(void);
 
 typedef struct {
@@ -27,7 +28,10 @@ typedef struct {
 } tDMAFrame;
 
 uint32_t g_ui32SysClock;
-uint32_t g_phyStatus;
+
+struct {
+    uint32_t bmcr, bmsr, cfg1, sts;
+} g_phy;
 
 tDMAFrame g_rxBuffer[8];
 tDMAFrame g_txBuffer[8];
@@ -50,6 +54,9 @@ int main(void)
 
     MAP_EMACPHYConfigSet(EMAC0_BASE,  
                          EMAC_PHY_TYPE_INTERNAL |
+                         EMAC_PHY_INT_MDI_SWAP |
+                         EMAC_PHY_INT_FAST_L_UP_DETECT |
+                         EMAC_PHY_INT_EXT_FULL_DUPLEX |
                          EMAC_PHY_FORCE_10B_T_FULL_DUPLEX);
 
     MAP_EMACReset(EMAC0_BASE);
@@ -76,7 +83,7 @@ int main(void)
     MAP_EMACRxEnable(EMAC0_BASE);
 
     while (1) {
-        g_phyStatus = MAP_EMACPHYRead(EMAC0_BASE, 0, EPHY_BMSR);
+        capture_phy_regs();
         __asm__ volatile ("bkpt");
     }
 }
@@ -103,4 +110,15 @@ void init_dma_frames(void)
 
     MAP_EMACRxDMADescriptorListSet(EMAC0_BASE, &g_rxBuffer[0].desc);
     MAP_EMACTxDMADescriptorListSet(EMAC0_BASE, &g_txBuffer[0].desc);
+}
+
+void capture_phy_regs(void)
+{
+    // It's inconvenient to read PHY registers from the debugger.
+    // Help out by copying the ones we're interested in to RAM.
+
+    g_phy.bmcr = MAP_EMACPHYRead(EMAC0_BASE, 0, EPHY_BMCR);
+    g_phy.bmsr = MAP_EMACPHYRead(EMAC0_BASE, 0, EPHY_BMSR);
+    g_phy.cfg1 = MAP_EMACPHYRead(EMAC0_BASE, 0, EPHY_CFG1);
+    g_phy.sts = MAP_EMACPHYRead(EMAC0_BASE, 0, EPHY_STS);
 }

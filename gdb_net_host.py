@@ -14,9 +14,11 @@ def poll(tap):
         while poll_tx(tap): continue
 
 def poll_link():
-    status = gdb.parse_and_eval('g_phyStatus')
-    if (status & 5) != 5:
-        print 'phy status = %08x, takes a few seconds to detect the full-duplex link...' % status
+    status = gdb.parse_and_eval('g_phy')
+    print 'phy status, bmcr=%08x bmsr=%08x cfg1=%08x sts=%08x' % (
+        status['bmcr'], status['bmsr'], status['cfg1'], status['sts'])
+    if (status['bmsr'] & 4) == 0:
+        print '--- Link is down ---'
         return False
     return True
 
