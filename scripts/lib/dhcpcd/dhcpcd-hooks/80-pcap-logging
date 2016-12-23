@@ -1,0 +1,11 @@
+pcap_dir=/home/pi/pcap
+
+if $if_up; then
+    if [ -e "$pcap_dir/$ifname" ]; then
+        nohup tcpdump \
+            -pni "$ifname" -s65535 -G 3600 \
+            -w "$pcap_dir/$ifname/trace_%Y-%m-%d_%H:%M:%S.pcap" \
+            2>/dev/null >/dev/null &
+    fi
+fi
+
