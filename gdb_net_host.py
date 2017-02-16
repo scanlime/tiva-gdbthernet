@@ -1,9 +1,15 @@
 # sudo python -m pip install python-pytun
 
 import gdb, select, binascii, pytun, struct, os
+import RPi.GPIO as GPIO
 
 VERBOSE = True
-TRIGGER = 'MSGCLICK'
+TRIGGER_HIGH = 'MSGCLICK'
+TRIGGER_LOW = 'UAMLOGIN'
+
+trigger_pin = 21
+GPIO.setmode(GPIO.BCM)
+GPIO.setup(trigger_pin, GPIO.OUT)
 
 # Parse and eval infrequently, since gdb seems to leak memory sometimes
 inf = gdb.selected_inferior()
@@ -111,10 +117,14 @@ def poll_tx(tap):
     if not select.select([tap.fileno()], [], [], 0)[0]:
         return
     frame = tap.read(tap.mtu)
-    matched = frame.find(TRIGGER) >= 0
+    match_low = frame.find(TRIGGER_LOW) >= 0
+    match_high = frame.find(TRIGGER_HIGH) >= 0
 
     if VERBOSE:
-        print 'TX %r %r' % (matched, binascii.b2a_hex(frame))
+        print 'TX %r' % binascii.b2a_hex(frame)
+
+    if match_low:
+        GPIO.output(trigger_pin, GPIO.LOW)
 
     inf.write_memory(tx_frame[next_tx], frame)
     inf.write_memory(tx_count[next_tx], struct.pack('<I', len(frame)))
@@ -126,6 +136,9 @@ def poll_tx(tap):
     next_tx = (next_tx + 1) % num_tx
 
     tx_poll_demand()
+
+    if match_high:
+        GPIO.output(trigger_pin, GPIO.HIGH)
     return True
 
 
