@@ -10,15 +10,18 @@ next_tx = 0
 
 def poll(tap):
     if poll_link():
-        while poll_rx(tap): continue
-        while poll_tx(tap): continue
+        while poll_tx(tap):
+            while poll_rx(tap):
+                continue
 
 def poll_link():
     status = gdb.parse_and_eval('g_phy')
-    print 'phy status, bmcr=%08x bmsr=%08x cfg1=%08x sts=%08x' % (
-        status['bmcr'], status['bmsr'], status['cfg1'], status['sts'])
     if (status['bmsr'] & 4) == 0:
         print '--- Link is down ---'
+        # Refresh PHY registers
+        gdb.execute('cont')
+        print 'phy status, bmcr=%08x bmsr=%08x cfg1=%08x sts=%08x' % (
+            status['bmcr'], status['bmsr'], status['cfg1'], status['sts'])
         return False
     return True
 
@@ -104,7 +107,6 @@ def main():
         # Something in or near 'run' is resetting adapter_khz to 500, make it fast here
         gdb.execute('monitor adapter_khz 2000')
         while True:
-            gdb.execute('cont')
             poll(tap)
     except KeyboardInterrupt:
         gdb.execute('set confirm off')
