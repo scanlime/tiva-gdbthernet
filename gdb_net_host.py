@@ -92,13 +92,6 @@ def poll_tx(tap):
 
 
 def main():
-    with OpenOcd() as ocd:
-        ocd.send("halt")
-        eth = Ethernet(ocd)
-        while True:
-            proxy(eth, tap)
-
-def main():
     # TAP interface with no packet info header; raw Ethernet frames
     tap = pytun.TunTapDevice(flags=pytun.IFF_TAP | pytun.IFF_NO_PI)
     gdb.execute('set height 0')
