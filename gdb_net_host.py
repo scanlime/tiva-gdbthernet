@@ -138,12 +138,13 @@ def poll_tx(tap):
         0x00100000)) # DES0_TX_CTRL_CHAINED
     next_tx = (next_tx + 1) % num_tx
 
-    tx_poll_demand()
-
     if match_high:
         GPIO.output(trigger_pin, GPIO.HIGH)
         if VERBOSE:
             print '+' * 60
+
+    tx_poll_demand()
+
     return True
 
 
