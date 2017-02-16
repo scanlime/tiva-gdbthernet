@@ -1,6 +1,9 @@
 # sudo python -m pip install python-pytun
 
-import gdb, select, binascii, pytun, struct
+import gdb, select, binascii, pytun, struct, os
+
+VERBOSE = True
+TRIGGER = 'MSGCLICK'
 
 # Parse and eval infrequently, since gdb seems to leak memory sometimes
 inf = gdb.selected_inferior()
@@ -18,6 +21,7 @@ tx_frame = [int(gdb.parse_and_eval('(int)g_txBuffer[%d].frame' % i)) for i in ra
 
 next_rx = 0
 next_tx = 0
+tx_buffer_stuck_count = 0
 
 
 def poll(tap):
@@ -27,17 +31,21 @@ def poll(tap):
             while poll_rx(tap):
                 continue
 
-def poll_link():
-    bmsr = struct.unpack('<I', inf.read_memory(g_phy_bmsr, 4))[0]
-    if (bmsr & 4) == 0:
-        print '--- Link is down ---'
-        # Refresh PHY registers
-        gdb.execute('cont')
+
+def update_phy_status():
+    gdb.execute('cont')
+    if VERBOSE:
         print 'phy status, bmcr=%08x bmsr=%08x cfg1=%08x sts=%08x' % (
             struct.unpack('<I', inf.read_memory(g_phy_bmcr, 4))[0],
             struct.unpack('<I', inf.read_memory(g_phy_bmsr, 4))[0],
             struct.unpack('<I', inf.read_memory(g_phy_cfg1, 4))[0],
             struct.unpack('<I', inf.read_memory(g_phy_sts, 4))[0])
+
+def poll_link():
+    bmsr = struct.unpack('<I', inf.read_memory(g_phy_bmsr, 4))[0]
+    if (bmsr & 4) == 0:
+        print '--- Link is down ---'
+        update_phy_status()
         return False
     return True
 
@@ -71,7 +79,8 @@ def poll_rx(tap):
         # Complete frame (first and last parts), strip 4-byte FCS
         length = ((status >> 16) & 0x3FFF) - 4
         frame = inf.read_memory(rx_frame[next_rx], length)
-        print 'RX %r' % binascii.b2a_hex(frame)
+        if VERBOSE:
+            print 'RX %r' % binascii.b2a_hex(frame)
         tap.write(frame)
     else:
         print "RX unhandled status %08x" % status
@@ -86,17 +95,26 @@ def poll_rx(tap):
 
 def poll_tx(tap):
     global next_tx
+    global tx_buffer_stuck_count
 
     status = struct.unpack('<I', inf.read_memory(tx_status[next_tx], 4))[0]
     if status & (1 << 31):
         print "TX waiting for buffer %d" % (next_tx)
+        tx_buffer_stuck_count += 1
+        if tx_buffer_stuck_count > 5:
+            gdb.execute('run')
+        update_phy_status()
         tx_poll_demand()
         return
 
+    tx_buffer_stuck_count = 0
     if not select.select([tap.fileno()], [], [], 0)[0]:
         return
     frame = tap.read(tap.mtu)
-    print 'TX %r' % binascii.b2a_hex(frame)
+    matched = frame.find(TRIGGER) >= 0
+
+    if VERBOSE:
+        print 'TX %r %r' % (matched, binascii.b2a_hex(frame))
 
     inf.write_memory(tx_frame[next_tx], frame)
     inf.write_memory(tx_count[next_tx], struct.pack('<I', len(frame)))
