@@ -34,8 +34,9 @@ def poll(tap):
     tx_poll_demand()
     if poll_link():
         while poll_tx(tap):
-            while poll_rx(tap):
-                continue
+            continue
+        while poll_rx(tap):
+            continue
 
 
 def update_phy_status():
@@ -124,6 +125,8 @@ def poll_tx(tap):
         print 'TX %r' % binascii.b2a_hex(frame)
 
     if match_low:
+        if VERBOSE:
+            print '-' * 60
         GPIO.output(trigger_pin, GPIO.LOW)
 
     inf.write_memory(tx_frame[next_tx], frame)
@@ -139,6 +142,8 @@ def poll_tx(tap):
 
     if match_high:
         GPIO.output(trigger_pin, GPIO.HIGH)
+        if VERBOSE:
+            print '+' * 60
     return True
 
 
