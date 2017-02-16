@@ -1,43 +1,60 @@
 # sudo python -m pip install python-pytun
 
-import gdb, select, binascii, pytun
+import gdb, select, binascii, pytun, struct
 
-num_rx = gdb.parse_and_eval('sizeof g_rxBuffer / sizeof g_rxBuffer[0]')
-num_tx = gdb.parse_and_eval('sizeof g_txBuffer / sizeof g_txBuffer[0]')
+# Parse and eval infrequently, since gdb seems to leak memory sometimes
+inf = gdb.selected_inferior()
+num_rx = int(gdb.parse_and_eval('sizeof g_rxBuffer / sizeof g_rxBuffer[0]'))
+num_tx = int(gdb.parse_and_eval('sizeof g_txBuffer / sizeof g_txBuffer[0]'))
+g_phy_bmcr = int(gdb.parse_and_eval('(int)&g_phy.bmcr'))
+g_phy_bmsr = int(gdb.parse_and_eval('(int)&g_phy.bmsr'))
+g_phy_cfg1 = int(gdb.parse_and_eval('(int)&g_phy.cfg1'))
+g_phy_sts = int(gdb.parse_and_eval('(int)&g_phy.sts'))
+rx_status = [int(gdb.parse_and_eval('(int)&g_rxBuffer[%d].desc.ui32CtrlStatus' % i)) for i in range(num_rx)]
+rx_frame = [int(gdb.parse_and_eval('(int)g_rxBuffer[%d].frame' % i)) for i in range(num_rx)]
+tx_status = [int(gdb.parse_and_eval('(int)&g_txBuffer[%d].desc.ui32CtrlStatus' % i)) for i in range(num_tx)]
+tx_count = [int(gdb.parse_and_eval('(int)&g_txBuffer[%d].desc.ui32Count' % i)) for i in range(num_tx)]
+tx_frame = [int(gdb.parse_and_eval('(int)g_txBuffer[%d].frame' % i)) for i in range(num_tx)]
+
 next_rx = 0
 next_tx = 0
 
 
 def poll(tap):
+    tx_poll_demand()
     if poll_link():
         while poll_tx(tap):
             while poll_rx(tap):
                 continue
 
 def poll_link():
-    status = gdb.parse_and_eval('g_phy')
-    if (status['bmsr'] & 4) == 0:
+    bmsr = struct.unpack('<I', inf.read_memory(g_phy_bmsr, 4))[0]
+    if (bmsr & 4) == 0:
         print '--- Link is down ---'
         # Refresh PHY registers
         gdb.execute('cont')
         print 'phy status, bmcr=%08x bmsr=%08x cfg1=%08x sts=%08x' % (
-            status['bmcr'], status['bmsr'], status['cfg1'], status['sts'])
+            struct.unpack('<I', inf.read_memory(g_phy_bmcr, 4))[0],
+            struct.unpack('<I', inf.read_memory(g_phy_bmsr, 4))[0],
+            struct.unpack('<I', inf.read_memory(g_phy_cfg1, 4))[0],
+            struct.unpack('<I', inf.read_memory(g_phy_sts, 4))[0])
         return False
     return True
 
+
 def rx_poll_demand():
     # Rx Poll Demand (wake up MAC if it's suspended)
-    gdb.parse_and_eval('*(volatile uint32_t*) 0x400ECC08 = -1')
+    inf.write_memory(0x400ECC08, struct.pack('<I', 0xFFFFFFFF))
 
 def tx_poll_demand():
     # Tx Poll Demand (wake up MAC if it's suspended)
-    gdb.parse_and_eval('*(volatile uint32_t*) 0x400ECC04 = -1')
+    inf.write_memory(0x400ECC04, struct.pack('<I', 0xFFFFFFFF))
 
 
 def poll_rx(tap):
     global next_rx
 
-    status = gdb.parse_and_eval('g_rxBuffer[%d].desc.ui32CtrlStatus' % next_rx)
+    status = struct.unpack('<I', inf.read_memory(rx_status[next_rx], 4))[0]
     if status & (1 << 31):
         # Hardware still owns this buffer; try later
         return
@@ -53,15 +70,14 @@ def poll_rx(tap):
     elif (status & (1 << 8)) and (status & (1 << 9)):
         # Complete frame (first and last parts), strip 4-byte FCS
         length = ((status >> 16) & 0x3FFF) - 4
-        ptr = gdb.parse_and_eval('g_rxBuffer[%d].frame' % next_rx)
-        frame = gdb.selected_inferior().read_memory(ptr, length)
+        frame = inf.read_memory(rx_frame[next_rx], length)
         print 'RX %r' % binascii.b2a_hex(frame)
         tap.write(frame)
     else:
         print "RX unhandled status %08x" % status
 
     # Return the buffer to hardware, advance to the next one
-    gdb.parse_and_eval('g_rxBuffer[%d].desc.ui32CtrlStatus = DES0_RX_CTRL_OWN' % next_rx)
+    inf.write_memory(rx_status[next_rx], struct.pack('<I', 0x80000000))
     next_rx = (next_rx + 1) % num_rx
 
     rx_poll_demand()
@@ -71,7 +87,8 @@ def poll_rx(tap):
 def poll_tx(tap):
     global next_tx
 
-    if gdb.parse_and_eval('g_txBuffer[%d].desc.ui32CtrlStatus' % next_tx) & (1 << 31):
+    status = struct.unpack('<I', inf.read_memory(tx_status[next_tx], 4))[0]
+    if status & (1 << 31):
         print "TX waiting for buffer %d" % (next_tx)
         tx_poll_demand()
         return
@@ -81,10 +98,13 @@ def poll_tx(tap):
     frame = tap.read(tap.mtu)
     print 'TX %r' % binascii.b2a_hex(frame)
 
-    ptr = gdb.parse_and_eval('g_txBuffer[%d].frame' % next_tx)
-    gdb.selected_inferior().write_memory(ptr, frame)
-    gdb.parse_and_eval('g_txBuffer[%d].desc.ui32Count = %d << DES1_TX_CTRL_BUFF1_SIZE_S' % (next_tx, len(frame)))
-    gdb.parse_and_eval('g_txBuffer[%d].desc.ui32CtrlStatus = DES0_TX_CTRL_LAST_SEG | DES0_TX_CTRL_FIRST_SEG | DES0_TX_CTRL_CHAINED | DES0_TX_CTRL_OWN' % next_tx)
+    inf.write_memory(tx_frame[next_tx], frame)
+    inf.write_memory(tx_count[next_tx], struct.pack('<I', len(frame)))
+    inf.write_memory(tx_status[next_tx], struct.pack('<I',
+        0x80000000 | # DES0_RX_CTRL_OWN
+        0x20000000 | # DES0_TX_CTRL_LAST_SEG
+        0x10000000 | # DES0_TX_CTRL_FIRST_SEG
+        0x00100000)) # DES0_TX_CTRL_CHAINED
     next_tx = (next_tx + 1) % num_tx
 
     tx_poll_demand()
