@@ -31,6 +31,26 @@ next_tx = 0
 tx_buffer_stuck_count = 0
 idle_state = False
 
+
+def rx_poll_demand():
+    # Rx Poll Demand (wake up MAC if it's suspended)
+    inf.write_memory(0x400ECC08, struct.pack('<I', 0xFFFFFFFF))
+
+def tx_poll_demand():
+    # Tx Poll Demand (wake up MAC if it's suspended)
+    inf.write_memory(0x400ECC04, struct.pack('<I', 0xFFFFFFFF))
+
+def update_phy_status():
+    # Let firmware run, to read registers from PHY into RAM
+    gdb.execute('cont')
+    if VERBOSE:
+        print('phy status, bmcr=%08x bmsr=%08x cfg1=%08x sts=%08x' % (
+            struct.unpack('<I', inf.read_memory(g_phy_bmcr, 4))[0],
+            struct.unpack('<I', inf.read_memory(g_phy_bmsr, 4))[0],
+            struct.unpack('<I', inf.read_memory(g_phy_cfg1, 4))[0],
+            struct.unpack('<I', inf.read_memory(g_phy_sts, 4))[0]))
+
+
 def poll(tap):
     global idle_state
 
@@ -40,18 +60,10 @@ def poll(tap):
         if t or r:
             idle_state = False
         elif not idle_state:
-            print('idle now')
+            if VERBOSE:
+                print('idle now')
             idle_state = True
 
-
-def update_phy_status():
-    gdb.execute('cont')
-    if VERBOSE:
-        print('phy status, bmcr=%08x bmsr=%08x cfg1=%08x sts=%08x' % (
-            struct.unpack('<I', inf.read_memory(g_phy_bmcr, 4))[0],
-            struct.unpack('<I', inf.read_memory(g_phy_bmsr, 4))[0],
-            struct.unpack('<I', inf.read_memory(g_phy_cfg1, 4))[0],
-            struct.unpack('<I', inf.read_memory(g_phy_sts, 4))[0]))
 
 def poll_link():
     bmsr = struct.unpack('<I', inf.read_memory(g_phy_bmsr, 4))[0]
@@ -60,15 +72,6 @@ def poll_link():
         update_phy_status()
         return False
     return True
-
-
-def rx_poll_demand():
-    # Rx Poll Demand (wake up MAC if it's suspended)
-    inf.write_memory(0x400ECC08, struct.pack('<I', 0xFFFFFFFF))
-
-def tx_poll_demand():
-    # Tx Poll Demand (wake up MAC if it's suspended)
-    inf.write_memory(0x400ECC04, struct.pack('<I', 0xFFFFFFFF))
 
 
 def poll_rx(tap):
