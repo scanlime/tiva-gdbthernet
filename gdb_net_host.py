@@ -161,6 +161,9 @@ def main():
     gdb.execute('set height 0')
     try:
         gdb.execute('run')
+        # Something in or near 'run' is resetting adapter_khz to 500,
+        # make it as fast as we can set it here
+        gdb.execute('monitor adapter_khz 20000')
         while True:
             poll(tap)
     except KeyboardInterrupt:
