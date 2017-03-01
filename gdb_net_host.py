@@ -4,12 +4,13 @@ import gdb, select, binascii, pytun, struct, os
 import RPi.GPIO as GPIO
 
 VERBOSE = True
-TRIGGER_HIGH = 'MSGCLICK'
-TRIGGER_LOW = 'UAMLOGIN'
+TRIGGER = False
+TRIGGER_PIN = 21
+TRIGGER_HIGH = '(string to match in packet for trigger HIGH state)'
+TRIGGER_LOW = '(string to match in packet for trigger LOW state)'
 
-trigger_pin = 21
 GPIO.setmode(GPIO.BCM)
-GPIO.setup(trigger_pin, GPIO.OUT)
+GPIO.setup(TRIGGER_PIN, GPIO.OUT)
 
 # Parse and eval infrequently, since gdb seems to leak memory sometimes
 inf = gdb.selected_inferior()
@@ -28,30 +29,34 @@ tx_frame = [int(gdb.parse_and_eval('(int)g_txBuffer[%d].frame' % i)) for i in ra
 next_rx = 0
 next_tx = 0
 tx_buffer_stuck_count = 0
-
+idle_state = False
 
 def poll(tap):
-    tx_poll_demand()
+    global idle_state
+
     if poll_link():
-        while poll_tx(tap):
-            continue
-        while poll_rx(tap):
-            continue
+        t = poll_tx(tap)
+        r = poll_rx(tap)
+        if t or r:
+            idle_state = False
+        elif not idle_state:
+            print('idle now')
+            idle_state = True
 
 
 def update_phy_status():
     gdb.execute('cont')
     if VERBOSE:
-        print 'phy status, bmcr=%08x bmsr=%08x cfg1=%08x sts=%08x' % (
+        print('phy status, bmcr=%08x bmsr=%08x cfg1=%08x sts=%08x' % (
             struct.unpack('<I', inf.read_memory(g_phy_bmcr, 4))[0],
             struct.unpack('<I', inf.read_memory(g_phy_bmsr, 4))[0],
             struct.unpack('<I', inf.read_memory(g_phy_cfg1, 4))[0],
-            struct.unpack('<I', inf.read_memory(g_phy_sts, 4))[0])
+            struct.unpack('<I', inf.read_memory(g_phy_sts, 4))[0]))
 
 def poll_link():
     bmsr = struct.unpack('<I', inf.read_memory(g_phy_bmsr, 4))[0]
     if (bmsr & 4) == 0:
-        print '--- Link is down ---'
+        print('--- Link is down ---')
         update_phy_status()
         return False
     return True
@@ -75,27 +80,26 @@ def poll_rx(tap):
         return
 
     if status & (1 << 11):
-        print "RX Overflow error"
+        print("RX Overflow error")
     elif status & (1 << 12):
-        print "RX Length error"
+        print("RX Length error")
     elif status & (1 << 3):
-        print "RX Receive error"
+        print("RX Receive error")
     elif status & (1 << 1):
-        print "RX CRC error"
+        print("RX CRC error")
     elif (status & (1 << 8)) and (status & (1 << 9)):
         # Complete frame (first and last parts), strip 4-byte FCS
         length = ((status >> 16) & 0x3FFF) - 4
         frame = inf.read_memory(rx_frame[next_rx], length)
         if VERBOSE:
-            print 'RX %r' % binascii.b2a_hex(frame)
+            print("RX %r" % binascii.b2a_hex(frame))
         tap.write(frame)
     else:
-        print "RX unhandled status %08x" % status
+        print("RX unhandled status %08x" % status)
 
     # Return the buffer to hardware, advance to the next one
     inf.write_memory(rx_status[next_rx], struct.pack('<I', 0x80000000))
     next_rx = (next_rx + 1) % num_rx
-
     rx_poll_demand()
     return True
 
@@ -106,7 +110,7 @@ def poll_tx(tap):
 
     status = struct.unpack('<I', inf.read_memory(tx_status[next_tx], 4))[0]
     if status & (1 << 31):
-        print "TX waiting for buffer %d" % (next_tx)
+        print("TX waiting for buffer %d" % next_tx)
         tx_buffer_stuck_count += 1
         if tx_buffer_stuck_count > 5:
             gdb.execute('run')
@@ -118,16 +122,17 @@ def poll_tx(tap):
     if not select.select([tap.fileno()], [], [], 0)[0]:
         return
     frame = tap.read(tap.mtu)
-    match_low = frame.find(TRIGGER_LOW) >= 0
-    match_high = frame.find(TRIGGER_HIGH) >= 0
+
+    match_low = TRIGGER and frame.find(TRIGGER_LOW) >= 0
+    match_high = TRIGGER and frame.find(TRIGGER_HIGH) >= 0
 
     if VERBOSE:
-        print 'TX %r' % binascii.b2a_hex(frame)
+        print('TX %r' % binascii.b2a_hex(frame))
 
     if match_low:
-        if VERBOSE:
-            print '-' * 60
-        GPIO.output(trigger_pin, GPIO.LOW)
+       if VERBOSE:
+           print('-' * 60)
+       GPIO.output(TRIGGER_PIN, GPIO.LOW)
 
     inf.write_memory(tx_frame[next_tx], frame)
     inf.write_memory(tx_count[next_tx], struct.pack('<I', len(frame)))
@@ -139,12 +144,11 @@ def poll_tx(tap):
     next_tx = (next_tx + 1) % num_tx
 
     if match_high:
-        GPIO.output(trigger_pin, GPIO.HIGH)
+        GPIO.output(TRIGGER_PIN, GPIO.HIGH)
         if VERBOSE:
-            print '+' * 60
+            print('+' * 60)
 
     tx_poll_demand()
-
     return True
 
 
@@ -154,13 +158,12 @@ def main():
     gdb.execute('set height 0')
     try:
         gdb.execute('run')
-        # Something in or near 'run' is resetting adapter_khz to 500, make it fast here
-        gdb.execute('monitor adapter_khz 2000')
         while True:
             poll(tap)
     except KeyboardInterrupt:
         gdb.execute('set confirm off')
         gdb.execute('quit')
+
 
 if __name__ == '__main__':
     main()
