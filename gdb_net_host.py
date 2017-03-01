@@ -80,22 +80,22 @@ def poll_rx(tap):
         return
 
     if status & (1 << 11):
-        print("RX Overflow error")
+        print('RX Overflow error')
     elif status & (1 << 12):
-        print("RX Length error")
+        print('RX Length error')
     elif status & (1 << 3):
-        print("RX Receive error")
+        print('RX Receive error')
     elif status & (1 << 1):
-        print("RX CRC error")
+        print('RX CRC error')
     elif (status & (1 << 8)) and (status & (1 << 9)):
         # Complete frame (first and last parts), strip 4-byte FCS
         length = ((status >> 16) & 0x3FFF) - 4
         frame = inf.read_memory(rx_frame[next_rx], length)
         if VERBOSE:
-            print("RX %r" % binascii.b2a_hex(frame))
+            print('RX %r' % binascii.b2a_hex(frame))
         tap.write(frame)
     else:
-        print("RX unhandled status %08x" % status)
+        print('RX unhandled status %08x' % status)
 
     # Return the buffer to hardware, advance to the next one
     inf.write_memory(rx_status[next_rx], struct.pack('<I', 0x80000000))
@@ -110,7 +110,7 @@ def poll_tx(tap):
 
     status = struct.unpack('<I', inf.read_memory(tx_status[next_tx], 4))[0]
     if status & (1 << 31):
-        print("TX waiting for buffer %d" % next_tx)
+        print('TX waiting for buffer %d' % next_tx)
         tx_buffer_stuck_count += 1
         if tx_buffer_stuck_count > 5:
             gdb.execute('run')
@@ -121,7 +121,7 @@ def poll_tx(tap):
     tx_buffer_stuck_count = 0
     if not select.select([tap.fileno()], [], [], 0)[0]:
         return
-    frame = tap.read(tap.mtu)
+    frame = tap.read(4096)
 
     match_low = TRIGGER and frame.find(TRIGGER_LOW) >= 0
     match_high = TRIGGER and frame.find(TRIGGER_HIGH) >= 0
