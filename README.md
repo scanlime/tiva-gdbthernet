@@ -2,7 +2,7 @@
 
 Little ethernet-over-gdb bridge for TI Tiva-C microcontrollers. Runs on a Raspberry Pi 2 or 3, with the Tiva-C Launchpad eval board SWD port attached to the Pi GPIOs.
 
-* Attach the EK-TM4C1249XL eval board to your rPI
+* Attach the EK-TM4C129XL eval board to your rPI
     * Remove the shorting jumper from JP1 (power select)
     * Remove the 0-ohm resistors R6-R16 to take the onboard JTAG debugger out of the circuit
     * Solder headers to X1 (JTAG) and a ground such as TP15
