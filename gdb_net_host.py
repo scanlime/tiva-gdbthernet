@@ -4,10 +4,10 @@ import gdb, select, binascii, pytun, struct, os
 import RPi.GPIO as GPIO
 
 VERBOSE = True
-TRIGGER = False
+TRIGGER = True
 TRIGGER_PIN = 21
-TRIGGER_HIGH = '(string to match in packet for trigger HIGH state)'
-TRIGGER_LOW = '(string to match in packet for trigger LOW state)'
+TRIGGER_HIGH = 'MSGCLICK'
+TRIGGER_LOW = 'UAMCHAL'
 
 GPIO.setmode(GPIO.BCM)
 GPIO.setup(TRIGGER_PIN, GPIO.OUT)
@@ -160,6 +160,7 @@ def main():
     tap = pytun.TunTapDevice(flags=pytun.IFF_TAP | pytun.IFF_NO_PI)
     gdb.execute('set height 0')
     try:
+        gdb.execute('monitor reset_config srst_only')
         gdb.execute('run')
         # Something in or near 'run' is resetting adapter_khz to 500,
         # make it as fast as we can set it here
